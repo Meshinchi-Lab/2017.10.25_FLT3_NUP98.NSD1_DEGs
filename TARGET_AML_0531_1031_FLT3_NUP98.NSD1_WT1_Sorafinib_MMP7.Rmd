@@ -1,0 +1,492 @@
+---
+title: 'TKIs Response in NUP98-NSD1 and WT1 mutants: MMP7'
+author: "Jenny Smith"
+date: "May 16, 2018"
+output: html_document
+---
+
+
+
+```{r setup}
+library(knitr)
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=50),tidy=TRUE, fig.align='center', fig.width = 10, fig.height = 10)
+knitr::opts_knit$set(root.dir = '/fh/fast/meshinchi_s/workingDir/TARGET/AML_TARGET/RNA/mRNAseq/analysis/2017.10.25_FLT3_NUP98.NSD1_DEGs/')
+```
+
+
+```{r message = FALSE, warning=FALSE}
+library(stringr)
+library(magrittr)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+getwd()
+```
+
+```{r}
+source("~/scripts/RNAseq_Analysis/DifferentialExpn_PathwayAnalysis/ggplot_Themes_Function.r")
+```
+
+```{r}
+# source("~/scripts/survival_analysis/Survplot_Functions_2017.03.31.r")
+```
+
+
+
+#Define Functions
+
+```{r}
+pheno_bars <- function(CDE,IDCol,cols){
+  #CDE is the clinical data frame with patietns as rows. 
+  #IDcol is the name of the column with patient USIs or COG#s
+  #cols are the colnames to be combined. 
+  
+  replace_yes <- function(col,name){
+    name <-gsub(".RNAseq|.positive.", "", name)
+    col <- ifelse(col == "Yes", name, col)
+    return(col)
+  }
+  
+  colorbar.df <- CDE %>%
+    select(IDCol,cols)
+  
+  if(length(cols) > 1){
+    colorbar.df <- bind_cols(colorbar.df, mapply(replace_yes, CDE[,cols], cols, SIMPLIFY = FALSE))
+  }else{
+    new <- data.frame(replace_yes(CDE[,cols],cols)) %>% set_colnames(cols)
+    colorbar.df <- bind_cols(colorbar.df, new) #dplyr bind_cols throws error Error in cbind_all(x) : Argument 2 must have names??
+  }
+  
+  
+  p <- NULL
+  for (col in cols){p <- paste(p,colorbar.df[,paste0(col,1)], sep="_")}
+  
+  colorbar <- p %>%
+    gsub("No|Unknown|_", "", .) %>%
+    gsub("^$", "OtherAML",.) %>%
+    set_names(CDE[,IDCol])
+  
+  return(colorbar)
+  
+}
+```
+
+
+```{r}
+colors <- c("dodgerblue4", "firebrick1", "green4",  "darkorange",
+                  "turquoise3", "orchid4", "azure4", "chartreuse1", "darkmagenta","orange1", 
+                  "deeppink", "darkslategray1", "chartreuse1", "navajowhite2",
+                  "brown3", "darkgoldenrod3", "deepskyblue1", "lightcoral", 
+                  "mediumorchid", "saddlebrown")
+```
+
+
+#Read in the Clinical Data
+
+```{r}
+CDE.1031 <- read.csv("~/reference_mapping-files/TARGET_AML_1031_CDE_cleaned_5.14.18.csv", stringsAsFactors = FALSE)
+
+CDE.1031 <- CDE.1031 %>%
+  filter(!is.na(USI))
+
+head(CDE.1031[,1:5])
+```
+
+```{r}
+itd <- read.csv("~/reference_mapping-files/AAML1031_ITDpos_data_091917_molecular_added.csv", stringsAsFactors = FALSE)
+head(itd[,1:5])
+```
+
+```{r}
+wt1 <- read.csv("/fh/fast/meshinchi_s/workingDir/TARGET/AML_TARGET/RNA/mRNAseq/level2/SNVs/2017July_BCCA_1031_Illumina_data/WT1_mutations_targeted_alignment_AAML1031.csv",
+                stringsAsFactors = FALSE)
+
+head(wt1[,1:5])
+```
+
+```{r}
+CDE.0531 <- read.csv("~/reference_mapping-files/TARGET_AML_current_asof_june30_2016_UPDATED_CLEAN_4.19.18.csv", stringsAsFactors = FALSE)
+
+head(CDE.0531[,1:5])
+```
+
+
+#Read in the expression data
+
+```{r}
+tpm.1031 <- read.csv("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TARGET_AML_AAML1031_dupGenesRemoved_TPM.csv", row.names = 1, stringsAsFactors = FALSE)
+
+head(tpm.1031[,1:5])
+```
+
+```{r}
+tpm.0531 <- read.csv("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TARGET_AML_AAML0531_dupGenesRemoved_TPM.csv", stringsAsFactors = FALSE, row.names = 1)
+
+head(tpm.0531[,1:5])
+```
+
+
+```{r}
+tpm.tx.1031 <- read.csv("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TARGET_AML_1031_kallisto_withGeneID_TPM.csv", 
+                        stringsAsFactors = FALSE)
+
+head(tpm.tx.1031[,1:5])
+```
+
+
+
+#Examine WT1 Expression in WT1+FLT3.ITDs,  NUP98.NSD1+FLT3.ITDs,  DNMT3A in adult AML. 
+
+## AAML0531 
+
+```{r}
+MMP7.expn.0531 <- tpm.0531 %>%
+  rownames_to_column("Gene") %>%
+  filter(grepl("MMP7$", Gene)) %>%
+  gather(TARGET.USI.1,TPM, -Gene) %>%
+  mutate(Group=ifelse(grepl("^BM|RO",TARGET.USI.1), "NBM", "AML")) %>%
+  
+  left_join(., 
+            select(CDE.0531,TARGET.USI.1,FLT3.ITD.positive.,WT1.mutation,NPM.mutation,CEBPA.mutation,NUP98.NSD1,
+                   Overall.Survival.Time.in.Days, OS.ID,Event.Free.Survival.Time.in.Days, Event.ID,CR.status.at.end.of.course.1,CR.status.at.end.of.course.2 ),
+            by="TARGET.USI.1") %>%
+  
+  mutate(FLT3_NUP98.NSD1=pheno_bars(CDE=., IDCol="TARGET.USI.1",cols = c("NUP98.NSD1","FLT3.ITD.positive.")),
+         FLT3_WT1=pheno_bars(CDE=., IDCol="TARGET.USI.1", cols=c("WT1.mutation", "FLT3.ITD.positive.")), 
+         FLT3_NUP98.NSD1_WT1=pheno_bars(CDE=., IDCol="TARGET.USI.1", cols=c("NUP98.NSD1","WT1.mutation", "FLT3.ITD.positive.")),
+         Log2TPM=log2(TPM+1)) %>%
+  
+  mutate_at(vars(FLT3_NUP98.NSD1:FLT3_NUP98.NSD1_WT1), funs(gsub("NANA", NA, gsub(".positive.", "", .)))) %>%
+  mutate_at(vars(FLT3_NUP98.NSD1:FLT3_NUP98.NSD1_WT1), funs(ifelse(Group=="NBM", "NBM", .))) %>%
+  mutate_at(vars(FLT3_WT1), funs(factor(., levels=c("NBM", "OtherAML", "FLT3.ITD", "WT1.mutation", "WT1.mutationFLT3.ITD")))) %>%
+  mutate_at(vars(FLT3_NUP98.NSD1), funs(factor(., levels=c("NBM", "OtherAML", "FLT3.ITD","NUP98.NSD1", "NUP98.NSD1FLT3.ITD")))) %>%
+  
+  filter(!is.na(FLT3_NUP98.NSD1)) %>%
+  mutate(X=rep("X", nrow(.)))
+
+MMP7.expn.0531
+```
+
+
+```{r}
+# table(MMP7.expn.0531$CR.status.at.end.of.course.1)
+MMP7.0531.sub <- MMP7.expn.0531 %>%
+  filter(grepl("CR|Not", CR.status.at.end.of.course.1)) %>%
+  mutate(CR1=ifelse(CR.status.at.end.of.course.1 == "CR", 0, 1)) 
+```
+
+
+
+```{r}
+set.seed(2018)
+train <- bind_rows(filter(MMP7.0531.sub, CR1==1),sample_n(filter(MMP7.0531.sub, CR1==0), size = 109))
+
+train
+```
+
+
+```{r}
+# table(MMP7.0531.sub$NUP98.NSD1, MMP7.0531.sub$CR1) #really only slight relationship with the CR status. 
+# table(MMP7.0531.sub$CEBPA.mutation, MMP7.0531.sub$CR1)
+# table(MMP7.0531.sub$NPM.mutation, MMP7.0531.sub$CR1) #where as the two favorable mutations have 
+# table(MMP7.0531.sub$NUP98.NSD1, MMP7.0531.sub$CR.status.at.end.of.course.2)[,c(1,3)]
+```
+
+
+```{r}
+# m <- stats::glm.fit(y=unlist(MMP7.0531.sub$CR1), x=unlist(MMP7.0531.sub$Log2TPM),intercept = FALSE, family = binomial())
+m <- stats::glm(CR1 ~ Log2TPM, data=train,  family = binomial())
+m
+summary(m)
+```
+
+
+```{r}
+# MMP7.expn.0531 %>%
+#   filter(MMP7.mutation=="Yes", FLT3.ITD.positive.=="Yes", NUP98.NSD1 =="Yes")
+
+table(MMP7.expn.0531$FLT3_NUP98.NSD1, MMP7.expn.0531$FLT3_WT1)
+```
+
+There are 10 triple positives with NUP98-NSD1, FLT3-ITD, and WT1 mutations.
+
+
+```{r fig.height=7}
+ggplot(MMP7.expn.0531, aes(x=FLT3_NUP98.NSD1_WT1, y=Log2TPM, fill=FLT3_NUP98.NSD1_WT1)) + 
+  geom_boxplot(color="azure3") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(x="") +
+  theme_JS
+```
+
+
+```{r fig.height=5, fig.width=12}
+ggplot(MMP7.expn.0531, aes(x=FLT3_WT1, y=Log2TPM, fill=FLT3_WT1)) + 
+  geom_boxplot(color="azure4") +
+  # geom_violin(draw_quantiles = TRUE) +
+  labs(x="") +
+  scale_fill_manual(values = c("saddlebrown",colors[1:4])) +
+  theme_numX
+```
+
+
+```{r fig.height=5, fig.width=12}
+ggplot(MMP7.expn.0531, aes(x=FLT3_NUP98.NSD1, y=Log2TPM, fill=FLT3_NUP98.NSD1)) + 
+  geom_boxplot(color="azure4") +
+  labs(x="") +
+  scale_fill_manual(values = c("saddlebrown",colors[1:4])) +
+  theme_numX
+```
+
+
+##AAML1031
+
+```{r}
+#calculate the earliest date to event (relapse or failure)
+DateOFEvent <- function(df){
+  cols <- c("Date.of.first.relapse", "Induction.1.failure.date","Induction.2.failure.date")
+
+  dates <- as.Date(integer(0),origin= "1899-12-30") #place holder time to initialize variable. 
+  for (i in 1:nrow(df)){
+    r <- df[i,cols[1]]
+    f1 <- df[i, cols[2]]
+    f2 <- df[i, cols[3]]
+    
+    events <- c(r,f1,f2)
+    if (all(is.na(events))){
+      d <- NA
+    }else{
+      d <- min(events, na.rm=TRUE)
+    }
+    dates <- c(dates,d)
+  }
+  return(dates)
+
+}
+```
+
+
+```{r}
+#function to change dot to NA
+dot2NA <- function(col){
+  ifelse(grepl("^\\.$|#", col), NA, col)
+}
+
+#function to change character to numeric
+char2Num <- function(col){
+  as.numeric(as.character(col))
+}
+
+#function to fill in missign values
+fillMaxTime <- function(col){
+  col <- as.numeric(col) #days column
+  ifelse(is.na(col), max(col, na.rm=TRUE), col)
+}
+```
+
+
+```{r}
+f <- "%m/%d/%Y" #format for date conversions
+
+
+MMP7.expn <- tpm.1031 %>%
+  rownames_to_column("Gene") %>%
+  filter(Gene == "MMP7") %>%
+  gather(USI,TPM, -Gene) %>%
+  mutate(Group=ifelse(grepl("^BM|RO",USI), "NBM", "AML")) %>%
+  
+  left_join(., select(CDE.1031, USI, 
+                      FLT3.ITD,FLT3.Allelic.Ratio,NPM1,CEBPA,WT1.mutation,
+                      Bone.marrow.leukemic.blast.percentage, wbc1, NUP98.NSD1_RNASeqCalls, cr1), by="USI") %>%
+  left_join(., select(itd,-NPM1,-CEBPA), by="USI") %>% #168 in 1031 CDE
+  
+  mutate(WT1.mutation=ifelse(grepl("Yes|Maybe",WT1.mutation), "Yes",WT1.mutation),
+         Dose.Sorafinb.InductionI=char2Num(dot2NA(Total.Dose..mg..of.Sorafenib.for.Induction.I..Sorafenib.)),
+         Dose.Sorafinb.InductionII=char2Num(dot2NA(Total.Dose..mg..of.Sorafenib.for.Induction.II..Sorafenib.)),
+         Dose.Sorafinb.IntensificationI=char2Num(dot2NA(Total.Dose..mg..of.Sorafenib.for.Intensification.I..Sorafenib.)),
+         Log2TPM=log2(TPM+1)) %>%
+
+  mutate(FLT3_NUP98.NSD1=pheno_bars(CDE=., IDCol="USI",cols = c("NUP98.NSD1_RNASeqCalls","FLT3.ITD")),
+         FLT3_WT1=pheno_bars(CDE=., IDCol="USI", cols=c("WT1.mutation", "FLT3.ITD")),
+         X=rep("X",nrow(.))) %>%
+  mutate_at(vars(FLT3_NUP98.NSD1:FLT3_WT1), funs(gsub("NANA", NA, gsub("RNASeqCalls", "\\.", .)))) %>%
+  mutate_at(vars(FLT3_NUP98.NSD1:FLT3_WT1), funs(ifelse(Group=="NBM", "NBM",.))) %>%
+  filter(!is.na(FLT3_NUP98.NSD1)) %>%
+  
+  mutate_at(vars(FLT3_WT1), funs(factor(., levels=c("NBM", "OtherAML", "FLT3.ITD", "WT1.mutation", "WT1.mutationFLT3.ITD")))) %>%
+  mutate_at(vars(FLT3_NUP98.NSD1), funs(factor(., levels=c("NBM", "OtherAML", "FLT3.ITD","NUP98.NSD1.", "NUP98.NSD1.FLT3.ITD")))) %>%
+  
+  select(USI,TPM,Log2TPM,everything(), -Total.Dose..mg..of.Sorafenib.for.Induction.I..Sorafenib.,-Total.Dose..mg..of.Sorafenib.for.Induction.II..Sorafenib.,
+         -Total.Dose..mg..of.Sorafenib.for.Intensification.I..Sorafenib.) 
+
+# MMP7.expn
+```
+
+
+
+
+```{r}
+MMP7.expn.sub <- MMP7.expn %>%
+  filter(!is.na(cr1)) %>%
+  mutate(CR1=ifelse(cr1 == 1, 0, 1)) %>%
+  select(USI,CR1,Log2TPM)
+
+table(MMP7.expn.sub$CR1, useNA = "always")
+# MMP7.expn.sub
+```
+
+```{r}
+library(pROC)
+```
+
+
+```{r}
+pred.CR <- predict.glm(m, newdata = MMP7.expn.sub[,2:3], type="response")
+```
+
+```{r}
+MMP7.expn.sub %>%
+  mutate(pred.CR=pred.CR) %>%
+  arrange(desc(pred.CR))
+```
+
+```{r}
+proc <- roc(CR1 ~ pred.CR, data=MMP7.expn.sub)
+auc(proc)
+plot(proc)
+```
+
+
+```{r fig.height=5, fig.width=12}
+ggplot(MMP7.expn, aes(x=FLT3_WT1, y=Log2TPM, fill=FLT3_WT1)) + 
+  geom_boxplot(color="azure4") +
+  labs(x="") +
+  scale_fill_manual(values = c("saddlebrown",colors[1:4])) +
+  theme_numX
+```
+
+
+```{r fig.height=5, fig.width=12}
+ggplot(MMP7.expn, aes(x=FLT3_NUP98.NSD1, y=Log2TPM, fill=FLT3_NUP98.NSD1)) + 
+  geom_boxplot(color="azure4") +
+  labs(x="") +
+  scale_fill_manual(values = c("saddlebrown",colors[1:4])) +
+  theme_numX
+```
+
+
+#Does MMP7 Expression Correlate with Response to Sorafinib?
+
+
+```{r}
+MMP7.Sora <- MMP7.expn %>% 
+  filter(!is.na(Patient.registration.number)) %>%
+  
+  #Change the Dates columns to date class
+  mutate(Date.of.first.relapse=as.Date(dot2NA(Date.of.first.relapse), format = f),
+         Date.of.enrollment=as.Date(Date.of.enrollment, format = f),
+         Induction.1.failure.date=as.Date(dot2NA(Induction.1.failure.date), format = f),
+         Induction.2.failure.date=as.Date(dot2NA(Induction.2.failure.date), format = f)) %>%
+
+  #Define the time from date of enrollment to date of event
+  mutate(Date.of.First.Event=DateOFEvent(.),
+         Days.to.Relapse=as.numeric(Date.of.first.relapse - Date.of.enrollment),
+         Days.to.First.Event=as.numeric(Date.of.First.Event - Date.of.enrollment)) %>%
+
+  #Update missing time points and create binary event columns
+  mutate(Days.to.First.Event=fillMaxTime(Days.to.First.Event),
+         Days.to.Relapse=fillMaxTime(Days.to.Relapse),
+         First.Relapse=ifelse(is.na(Date.of.first.relapse), 0, 1),
+         First.Event=ifelse(is.na(Date.of.First.Event), 0, 1)) %>%
+  droplevels(.)
+
+```
+
+
+```{r}
+table(MMP7.Sora$FLT3_NUP98.NSD1, MMP7.Sora$FLT3_WT1)
+```
+
+There are 3 triple positives, with NUP98-NSD1, FLT3-ITD, and WT1 mutations. 
+
+```{r fig.height=5}
+ggplot(subset(MMP7.Sora, Treatment.Arm == "Arm C"), aes(x=FLT3_NUP98.NSD1, y=Log2TPM, fill=FLT3_NUP98.NSD1)) +
+  geom_boxplot(color="azure3") +
+  labs(title="MMP7 Expression in NUP98.NSD1/FLT3-ITD AML \n Treated with Sorafinib (Arm C)", x="") +
+  theme_numX +
+  scale_fill_manual(values = colors[1:2])
+```
+
+
+```{r fig.height=5}
+# tiff("TARGET_")
+ggplot(subset(MMP7.Sora, Treatment.Arm == "Arm C"), aes(x=FLT3_NUP98.NSD1, y=Log2TPM, fill=FLT3_WT1, color=FLT3_NUP98.NSD1)) +
+  geom_boxplot() +
+  labs(title="MMP7 Expression in NUP98.NSD1/FLT3-ITD AML \n Treated with Sorafinib (Arm C)", x="") +
+  theme_numX +
+  scale_fill_manual(values = c("navajowhite2", "brown")) +
+  scale_color_manual(values = colors[1:2]) + 
+  theme(axis.text.x = element_text(color = colors[1:2]))
+```
+
+
+```{r fig.height=5, fig.width=9}
+Rel.1031 <- KM.plots(df=MMP7.Sora,
+                      groupBy = "Treatment.Arm", 
+                      type="Relapse", 
+                      covariate = "FLT3_NUP98.NSD1",
+                      cohort = "1031",
+                     cc = colors[1:2])
+
+# Rel.1031$Relapse
+Rel.1031$Failure
+```
+
+
+```{r fig.height=5, fig.width=9}
+Rel.WT1.1031 <- KM.plots(df=WT1.Sora,
+                      groupBy = "Treatment.Arm", 
+                      type="Relapse", 
+                      covariate = "FLT3_WT1",
+                      cohort = "1031",
+                     cc = colors[1:2])
+Rel.WT1.1031$Failure
+```
+
+
+
+#Examine the FLT3-ITD Transcripts 
+
+```{r}
+FLT3 <- tpm.tx.1031 %>%
+  filter(grepl("FLT3$", gene_name, ignore.case = TRUE)) %>%
+  select(transcript_id, everything(), -gene_id, -gene_name, -transcript_name) %>%
+  gather(var,val, -transcript_id) %>%
+  group_by(var) %>%
+  mutate(DominantSpecies=ifelse(val==max(val), transcript_id, "NotDominant")) %>%
+  mutate(DominantSpecies=ifelse(val==max(val) & max(val) == 0,"NotExpressed",DominantSpecies)) %>%
+  spread(transcript_id, val) %>%
+  mutate_if(is.numeric, funs(replace(.,is.na(.),0))) %>%
+  mutate_if(is.numeric, funs(sum)) %>%
+  ungroup() %>%
+  filter(DominantSpecies != "NotDominant") %>%
+  mutate(Group=ifelse(grepl("^BM|RO", var), "NBM", "AML"), 
+         Total=rowSums(select(., contains("ENST")))) %>%
+  select(var,Group, everything())
+
+options(scipen = 999)
+# dim(FLT3)  #1112    8
+head(FLT3)
+# write.csv(FLT3, "TARGET_AML_1031_kallisto_FLT3_Transcripts_TPM.csv", row.names = FALSE)
+```
+
+
+
+
+#Session Information 
+
+```{r}
+sessionInfo()
+```
+
